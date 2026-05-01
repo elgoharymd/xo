@@ -179,6 +179,12 @@
             transform: translateY(-2px);
         }
 
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
         .room-code-display {
             background: linear-gradient(135deg, #667eea15, #764ba215);
             padding: 16px;
@@ -290,12 +296,12 @@
             overflow: hidden;
         }
 
-        .cell:hover {
+        .cell:hover:not(.disabled) {
             background: #e5e7eb;
             transform: scale(1.02);
         }
 
-        .cell:active {
+        .cell:active:not(.disabled) {
             transform: scale(0.96);
         }
 
@@ -396,6 +402,18 @@
             box-shadow: 0 8px 25px rgba(107, 114, 128, 0.3);
         }
 
+        .leave-btn {
+            width: 100%;
+            margin-top: 12px;
+            background: #ef4444;
+            color: white;
+            justify-content: center;
+        }
+
+        .leave-btn:hover {
+            background: #dc2626;
+        }
+
         .toast {
             position: fixed;
             bottom: 30px;
@@ -417,16 +435,26 @@
             transform: translateX(-50%) translateY(0);
         }
 
-        .leave-btn {
-            width: 100%;
-            margin-top: 12px;
-            background: #ef4444;
-            color: white;
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
             justify-content: center;
+            align-items: center;
+            z-index: 2000;
         }
 
-        .leave-btn:hover {
-            background: #dc2626;
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #fff;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
         }
 
         @media (max-width: 500px) {
@@ -451,21 +479,6 @@
                 letter-spacing: 3px;
             }
         }
-
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .slide-in {
-            animation: slideIn 0.4s ease-out;
-        }
     </style>
 </head>
 <body>
@@ -481,9 +494,9 @@
                     <div class="section-label">🎮 غرفة اللعبة</div>
                     <div class="room-controls">
                         <div class="room-input-wrapper">
-                            <input type="text" id="roomCodeInput" class="room-input" placeholder="123456" maxlength="6" autocomplete="off" inputmode="numeric">
+                            <input type="text" id="roomCodeInput" class="room-input" placeholder="أدخل رمز الغرفة" maxlength="6" autocomplete="off">
                         </div>
-                        <button id="joinGameBtn" class="btn btn-primary">🎯 انضم</button>
+                        <button id="joinGameBtn" class="btn btn-primary">🎯 انضم للغرفة</button>
                     </div>
                     <div class="room-controls">
                         <button id="createGameBtn" class="btn btn-secondary" style="width: 100%;">✨ إنشاء غرفة جديدة</button>
@@ -492,7 +505,7 @@
             </div>
 
             <div id="gameView" style="display: none;">
-                <div class="room-code-display" id="roomCodeDisplay">
+                <div class="room-code-display">
                     <span>🏷️ رمز الغرفة</span>
                     <br>
                     <strong id="roomCodeValue">------</strong>
@@ -538,10 +551,13 @@
     </div>
 
     <div id="toast" class="toast"></div>
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+    </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
-        import { getDatabase, ref, set, onValue, update, remove, push, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-database.js";
+        import { getDatabase, ref, set, onValue, update, remove, get, child } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-database.js";
 
         // Firebase Configuration
         const firebaseConfig = {
@@ -554,8 +570,10 @@
             measurementId: "G-SESYRWKR5J"
         };
 
+        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const database = getDatabase(app);
+        const dbRef = ref(database);
 
         // Game State
         let currentRoom = null;
@@ -585,10 +603,15 @@
         const playerOStatus = document.getElementById('playerOStatus');
         const playerXCard = document.getElementById('playerXCard');
         const playerOCard = document.getElementById('playerOCard');
+        const loadingOverlay = document.getElementById('loadingOverlay');
 
         let boardCells = [];
 
         // Helper Functions
+        function showLoading(show) {
+            loadingOverlay.style.display = show ? 'flex' : 'none';
+        }
+
         function showToast(message, duration = 3000) {
             const toast = document.getElementById('toast');
             toast.textContent = message;
@@ -598,7 +621,6 @@
             }, duration);
         }
 
-        // Generate 6-digit random number
         function generateRoomCode() {
             return Math.floor(100000 + Math.random() * 900000).toString();
         }
@@ -699,50 +721,65 @@
             const updates = {
                 board: newBoard,
                 turn: mySymbol === 'X' ? 'O' : 'X',
-                lastMove: serverTimestamp()
+                lastMove: Date.now()
             };
             
             if (winner) {
                 updates.winner = winner;
                 updates.status = 'finished';
-                updates.winningPlayer = winner;
             }
             
-            await update(ref(database, `xo_games/${currentRoom}`), updates);
+            try {
+                await update(ref(database, `games/${currentRoom}`), updates);
+            } catch (error) {
+                console.error('Move error:', error);
+                showToast('حدث خطأ، حاول مرة أخرى');
+            }
         }
 
         async function resetCurrentGame() {
             if (!currentRoom) return;
             
+            showLoading(true);
             const resetData = {
                 board: ['', '', '', '', '', '', '', '', ''],
                 turn: 'X',
                 winner: null,
                 status: 'playing',
-                lastMove: serverTimestamp()
+                lastMove: Date.now()
             };
             
-            await update(ref(database, `xo_games/${currentRoom}`), resetData);
-            showToast('🔄 تم بدء جولة جديدة');
+            try {
+                await update(ref(database, `games/${currentRoom}`), resetData);
+                showToast('🔄 تم بدء جولة جديدة');
+            } catch (error) {
+                showToast('حدث خطأ');
+            } finally {
+                showLoading(false);
+            }
         }
 
         async function leaveRoom() {
             if (currentRoom && currentPlayerId && mySymbol) {
-                const roomRef = ref(database, `xo_games/${currentRoom}`);
-                const updateData = {};
-                
-                if (mySymbol === 'X') {
-                    updateData['players/X'] = null;
-                } else {
-                    updateData['players/O'] = null;
+                try {
+                    const roomRef = ref(database, `games/${currentRoom}`);
+                    const updateData = {};
+                    
+                    if (mySymbol === 'X') {
+                        updateData['playerX'] = null;
+                    } else {
+                        updateData['playerO'] = null;
+                    }
+                    
+                    updateData.status = 'waiting';
+                    updateData.winner = null;
+                    updateData.turn = 'X';
+                    updateData.board = ['', '', '', '', '', '', '', '', ''];
+                    
+                    await update(roomRef, updateData);
+                } catch (error) {
+                    console.error('Leave room error:', error);
                 }
-                
-                updateData.status = 'waiting';
-                updateData.winner = null;
-                updateData.turn = 'X';
-                updateData.board = ['', '', '', '', '', '', '', '', ''];
-                
-                await update(roomRef, updateData);
             }
             
             if (gameSubscription) {
@@ -766,11 +803,11 @@
             currentGameData = data;
             
             // Update player names and statuses
-            if (data.players) {
-                const isPlayerX = data.players.X === currentPlayerId;
-                const isPlayerO = data.players.O === currentPlayerId;
+            if (data.playerX || data.playerO) {
+                const isPlayerX = data.playerX === currentPlayerId;
+                const isPlayerO = data.playerO === currentPlayerId;
                 
-                if (data.players.X) {
+                if (data.playerX) {
                     playerXName.textContent = isPlayerX ? 'أنت (X)' : 'الخصم (X)';
                     playerXStatus.textContent = 'متصل';
                     playerXStatus.className = 'player-status status-ready';
@@ -780,7 +817,7 @@
                     playerXStatus.className = 'player-status status-waiting';
                 }
                 
-                if (data.players.O) {
+                if (data.playerO) {
                     playerOName.textContent = isPlayerO ? 'أنت (O)' : 'الخصم (O)';
                     playerOStatus.textContent = 'متصل';
                     playerOStatus.className = 'player-status status-ready';
@@ -803,20 +840,19 @@
             }
             
             // Check if both players are present
-            const bothPlayersReady = data.players && data.players.X && data.players.O;
+            const bothPlayersReady = data.playerX && data.playerO;
             
             if (bothPlayersReady) {
                 waitingContainer.style.display = 'none';
                 boardContainer.style.display = 'block';
                 
-                // Update status
                 if (data.winner) {
                     if (data.winner === 'draw') {
                         gameStatus.textContent = '🤝 تعادل!';
                         turnIndicator.style.display = 'none';
                     } else {
-                        const isWinner = (data.winner === 'X' && data.players.X === currentPlayerId) ||
-                                       (data.winner === 'O' && data.players.O === currentPlayerId);
+                        const isWinner = (data.winner === 'X' && data.playerX === currentPlayerId) ||
+                                       (data.winner === 'O' && data.playerO === currentPlayerId);
                         gameStatus.textContent = isWinner ? '🎉 فوز! تهانينا 🎉' : '💔 خسارة! حاول مرة أخرى';
                         turnIndicator.style.display = 'none';
                         highlightWinningCells(data.board, data.winner);
@@ -844,50 +880,51 @@
         }
 
         async function createGame() {
+            showLoading(true);
             const roomCode = generateRoomCode();
             const playerId = getPlayerId();
             
-            const gameRef = ref(database, `xo_games/${roomCode}`);
-            
-            // Check if room already exists
-            const snapshot = await new Promise((resolve) => {
-                onValue(gameRef, resolve, { onlyOnce: true });
-            });
-            
-            if (snapshot.exists()) {
-                showToast('⚠️ تحدث مشكلة، حاول مرة أخرى');
-                return;
-            }
-            
-            const gameData = {
-                roomCode: roomCode,
-                players: {
-                    X: playerId,
-                    O: null
-                },
-                board: ['', '', '', '', '', '', '', '', ''],
-                turn: 'X',
-                winner: null,
-                status: 'waiting',
-                createdAt: serverTimestamp(),
-                lastMove: serverTimestamp()
-            };
+            const gameRef = ref(database, `games/${roomCode}`);
             
             try {
+                // Check if room already exists
+                const snapshot = await get(child(dbRef, `games/${roomCode}`));
+                
+                if (snapshot.exists()) {
+                    showToast('⚠️ تحدث مشكلة، حاول مرة أخرى');
+                    showLoading(false);
+                    return;
+                }
+                
+                const gameData = {
+                    roomCode: roomCode,
+                    playerX: playerId,
+                    playerO: null,
+                    board: ['', '', '', '', '', '', '', '', ''],
+                    turn: 'X',
+                    winner: null,
+                    status: 'waiting',
+                    createdAt: Date.now(),
+                    lastMove: Date.now()
+                };
+                
                 await set(gameRef, gameData);
                 currentRoom = roomCode;
                 currentPlayerId = playerId;
                 mySymbol = 'X';
                 setupGameListener(roomCode);
-                showToast(`✅ تم إنشاء الغرفة بنجاح! رمز الغرفة: ${roomCode}`);
+                showToast(`✅ تم إنشاء الغرفة بنجاح! الرمز: ${roomCode}`);
             } catch (error) {
-                showToast('❌ حدث خطأ في إنشاء الغرفة');
-                console.error(error);
+                console.error('Create game error:', error);
+                showToast('❌ حدث خطأ في إنشاء الغرفة: ' + error.message);
+            } finally {
+                showLoading(false);
             }
         }
 
         async function joinGame() {
             let roomCode = roomCodeInput.value.trim();
+            
             if (!roomCode || roomCode.length !== 6) {
                 showToast('⚠️ الرجاء إدخال رمز غرفة صحيح مكون من 6 أرقام');
                 return;
@@ -898,64 +935,77 @@
                 return;
             }
             
-            const gameRef = ref(database, `xo_games/${roomCode}`);
+            showLoading(true);
             
             try {
-                const snapshot = await new Promise((resolve) => {
-                    onValue(gameRef, resolve, { onlyOnce: true });
-                });
+                const gameRef = ref(database, `games/${roomCode}`);
+                const snapshot = await get(child(dbRef, `games/${roomCode}`));
                 
-                const gameData = snapshot.val();
-                
-                if (!gameData) {
-                    showToast('❌ الغرفة غير موجودة');
+                if (!snapshot.exists()) {
+                    showToast('❌ الغرفة غير موجودة. تأكد من الرمز أو قم بإنشاء غرفة جديدة');
+                    showLoading(false);
                     return;
                 }
                 
+                const gameData = snapshot.val();
                 const playerId = getPlayerId();
                 
-                // Check if player already in game
-                if (gameData.players.X === playerId) {
+                console.log('Game data:', gameData);
+                console.log('Player ID:', playerId);
+                
+                // Check if player is already in game
+                if (gameData.playerX === playerId) {
                     currentRoom = roomCode;
                     currentPlayerId = playerId;
                     mySymbol = 'X';
                     setupGameListener(roomCode);
                     showToast(`✅ مرحباً بعودتك! تم الانضمام إلى الغرفة ${roomCode}`);
+                    showLoading(false);
                     return;
                 }
                 
-                if (gameData.players.O === playerId) {
+                if (gameData.playerO === playerId) {
                     currentRoom = roomCode;
                     currentPlayerId = playerId;
                     mySymbol = 'O';
                     setupGameListener(roomCode);
                     showToast(`✅ مرحباً بعودتك! تم الانضمام إلى الغرفة ${roomCode}`);
+                    showLoading(false);
                     return;
                 }
                 
                 // Join as O if spot available
-                if (!gameData.players.O && gameData.status !== 'finished') {
-                    await update(ref(database, `xo_games/${roomCode}/players/O`), playerId);
-                    await update(ref(database, `xo_games/${roomCode}/status`), 'playing');
+                if (!gameData.playerO && gameData.status !== 'finished') {
+                    await update(ref(database, `games/${roomCode}`), {
+                        playerO: playerId,
+                        status: 'playing'
+                    });
                     currentRoom = roomCode;
                     currentPlayerId = playerId;
                     mySymbol = 'O';
                     setupGameListener(roomCode);
                     showToast(`✅ تم الانضمام إلى الغرفة ${roomCode} كلاعب O`);
-                } else if (!gameData.players.X && gameData.status !== 'finished') {
-                    await update(ref(database, `xo_games/${roomCode}/players/X`), playerId);
-                    await update(ref(database, `xo_games/${roomCode}/status`), 'playing');
+                } 
+                // Join as X if spot available (for edge cases)
+                else if (!gameData.playerX && gameData.status !== 'finished') {
+                    await update(ref(database, `games/${roomCode}`), {
+                        playerX: playerId,
+                        status: 'playing'
+                    });
                     currentRoom = roomCode;
                     currentPlayerId = playerId;
                     mySymbol = 'X';
                     setupGameListener(roomCode);
                     showToast(`✅ تم الانضمام إلى الغرفة ${roomCode} كلاعب X`);
-                } else {
-                    showToast('❌ الغرفة ممتلئة');
+                } 
+                else {
+                    showToast('❌ الغرفة ممتلئة. لا يمكن انضمام لاعبين إضافيين');
                 }
             } catch (error) {
-                showToast('❌ حدث خطأ في الانضمام للغرفة');
-                console.error(error);
+                console.error('Join game error:', error);
+                showToast('❌ حدث خطأ في الانضمام للغرفة: ' + error.message);
+            } finally {
+                showLoading(false);
             }
         }
 
@@ -964,7 +1014,7 @@
                 gameSubscription();
             }
             
-            const gameRef = ref(database, `xo_games/${roomCode}`);
+            const gameRef = ref(database, `games/${roomCode}`);
             gameSubscription = onValue(gameRef, (snapshot) => {
                 const data = snapshot.val();
                 if (!data) {
@@ -975,6 +1025,9 @@
                 
                 currentGameData = data;
                 updateUIWithGameData(data);
+            }, (error) => {
+                console.error('Listener error:', error);
+                showToast('حدث خطأ في الاتصال');
             });
             
             lobbyView.style.display = 'none';
@@ -999,6 +1052,21 @@
         
         // Initialize
         createBoardUI();
+        
+        // Test Firebase connection
+        async function testConnection() {
+            try {
+                const testRef = ref(database, 'test');
+                await set(testRef, { connected: true, timestamp: Date.now() });
+                console.log('Firebase connected successfully');
+                showToast('✅ جاهز! يمكنك بدء اللعب');
+            } catch (error) {
+                console.error('Firebase connection error:', error);
+                showToast('⚠️ مشكلة في الاتصال، تأكد من اتصال الإنترنت');
+            }
+        }
+        
+        testConnection();
         
         // Cleanup on page unload
         window.addEventListener('beforeunload', () => {
