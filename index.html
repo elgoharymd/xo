@@ -28,7 +28,6 @@
             overflow-x: hidden;
         }
 
-        /* Animated Background */
         .bg-animation {
             position: fixed;
             top: 0;
@@ -62,18 +61,16 @@
             margin: 0 auto;
         }
 
-        /* Glassmorphism Card */
         .game-card {
             background: rgba(20, 20, 30, 0.8);
             backdrop-filter: blur(20px);
             border-radius: 48px;
             padding: 24px;
             border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 25px 45px rgba(0, 0, 0, 0.3), 0 0 20px rgba(255, 255, 255, 0.05);
-            transition: all 0.3s ease;
+            box-shadow: 0 25px 45px rgba(0, 0, 0, 0.3);
         }
 
-        /* Secret Bot Button - Hidden but accessible */
+        /* Secret Bot Button */
         .secret-bot-btn {
             position: fixed;
             bottom: 20px;
@@ -130,7 +127,6 @@
             50% { opacity: 0.7; }
         }
 
-        /* Header */
         .game-header {
             text-align: center;
             margin-bottom: 28px;
@@ -165,7 +161,6 @@
             font-weight: 500;
         }
 
-        /* Room Section */
         .room-section {
             background: rgba(0, 0, 0, 0.3);
             border-radius: 32px;
@@ -271,8 +266,6 @@
             text-align: center;
             margin-bottom: 24px;
             border: 1px solid rgba(255, 51, 102, 0.3);
-            position: relative;
-            overflow: hidden;
         }
 
         .room-code-display strong {
@@ -286,7 +279,6 @@
             text-shadow: 0 0 10px rgba(0, 204, 255, 0.5);
         }
 
-        /* Players Section */
         .players-section {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -350,11 +342,11 @@
         }
 
         .status-bot {
-            background: rgba(255, 51, 102, 0.4);
-            color: #ff6699;
+            background: linear-gradient(135deg, #ff3366, #cc0033);
+            color: white;
+            text-shadow: 0 0 5px rgba(0,0,0,0.5);
         }
 
-        /* Game Board */
         .game-board {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -554,7 +546,7 @@
     <!-- Bot Mode Indicator -->
     <div class="bot-indicator" id="botIndicator">
         <i class="fas fa-robot"></i>
-        <span>BOT MODE ACTIVE</span>
+        <span>BOT MODE ACTIVE - BOT WILL FIGHT OPPONENT</span>
     </div>
     
     <div class="app-container">
@@ -675,7 +667,6 @@
         let gameSubscription = null;
         let currentGameData = null;
         let botMode = false;
-        let botInterval = null;
         
         const lobbyView = document.getElementById('lobbyView');
         const gameView = document.getElementById('gameView');
@@ -711,14 +702,7 @@
 
             getBestMove(board, botSymbol) {
                 const playerSymbol = botSymbol === 'X' ? 'O' : 'X';
-                
-                if (this.difficulty === 'hard') {
-                    return this.minimax(board, botSymbol, playerSymbol).index;
-                } else if (this.difficulty === 'medium') {
-                    return this.getRandomWinningMove(board, botSymbol, playerSymbol);
-                } else {
-                    return this.getRandomMove(board);
-                }
+                return this.minimax(board, botSymbol, playerSymbol).index;
             }
 
             minimax(board, botSymbol, playerSymbol, isMaximizing = true, depth = 0) {
@@ -776,43 +760,6 @@
 
             isBoardFull(board) {
                 return board.every(cell => cell !== '');
-            }
-
-            getRandomWinningMove(board, botSymbol, playerSymbol) {
-                // Try to win first
-                for (let i = 0; i < 9; i++) {
-                    if (board[i] === '') {
-                        board[i] = botSymbol;
-                        if (this.checkWinnerForAI(board) === botSymbol) {
-                            board[i] = '';
-                            return i;
-                        }
-                        board[i] = '';
-                    }
-                }
-                
-                // Then try to block opponent
-                for (let i = 0; i < 9; i++) {
-                    if (board[i] === '') {
-                        board[i] = playerSymbol;
-                        if (this.checkWinnerForAI(board) === playerSymbol) {
-                            board[i] = '';
-                            return i;
-                        }
-                        board[i] = '';
-                    }
-                }
-                
-                // Then use minimax for optimal move
-                return this.minimax(board, botSymbol, playerSymbol).index;
-            }
-
-            getRandomMove(board) {
-                const emptySpots = [];
-                for (let i = 0; i < 9; i++) {
-                    if (board[i] === '') emptySpots.push(i);
-                }
-                return emptySpots[Math.floor(Math.random() * emptySpots.length)];
             }
         }
 
@@ -912,38 +859,49 @@
             if (!botMode || !currentRoom || !currentGameData) return;
             if (currentGameData.winner) return;
             
-            // Wait for opponent's turn (bot plays as the opponent)
-            const opponentSymbol = mySymbol === 'X' ? 'O' : 'X';
-            if (currentGameData.turn !== opponentSymbol) return;
+            // Bot plays as the OPPONENT (not the player who activated the bot)
+            // If I am X, bot plays as O (opponent)
+            // If I am O, bot plays as X (opponent)
+            const botSymbol = mySymbol === 'X' ? 'O' : 'X';
+            
+            // Check if it's bot's turn
+            if (currentGameData.turn !== botSymbol) return;
             
             // Get best move from AI
             const board = [...currentGameData.board];
-            const bestMove = bot.getBestMove(board, opponentSymbol);
+            const bestMove = bot.getBestMove(board, botSymbol);
             
             if (bestMove !== undefined && board[bestMove] === '') {
-                // Simulate delay for realism
+                // Simulate realistic delay
                 setTimeout(async () => {
                     if (!currentGameData || currentGameData.winner) return;
-                    if (currentGameData.turn !== opponentSymbol) return;
+                    if (currentGameData.turn !== botSymbol) return;
                     
                     const newBoard = [...currentGameData.board];
-                    newBoard[bestMove] = opponentSymbol;
+                    newBoard[bestMove] = botSymbol;
                     
                     const winner = checkWinner(newBoard);
                     
                     const updates = {
                         board: newBoard,
-                        turn: opponentSymbol === 'X' ? 'O' : 'X',
+                        turn: botSymbol === 'X' ? 'O' : 'X',
                         lastMove: Date.now()
                     };
                     
                     if (winner) {
                         updates.winner = winner;
                         updates.status = 'finished';
+                        
+                        // Show different messages based on who won
+                        if (winner === mySymbol) {
+                            showToast('🎉 You defeated the BOT! Amazing! 🎉');
+                        } else if (winner === botSymbol) {
+                            showToast('🤖 BOT defeated your opponent! Be careful! 🤖');
+                        }
                     }
                     
                     await update(ref(database, `games/${currentRoom}`), updates);
-                }, 500);
+                }, 600);
             }
         }
 
@@ -976,12 +934,6 @@
             if (winner) {
                 updates.winner = winner;
                 updates.status = 'finished';
-                
-                if (botMode && winner === mySymbol) {
-                    showToast('🎮 You defeated the BOT! Amazing! 🎮');
-                } else if (botMode && winner !== 'draw' && winner !== mySymbol) {
-                    showToast('🤖 BOT wins! Try again! 🤖');
-                }
             }
             
             try {
@@ -1013,11 +965,6 @@
         }
 
         async function leaveRoom() {
-            if (botInterval) {
-                clearInterval(botInterval);
-                botInterval = null;
-            }
-            
             if (currentRoom && currentPlayerId && mySymbol) {
                 try {
                     const roomRef = ref(database, `games/${currentRoom}`);
@@ -1058,12 +1005,17 @@
                 const isPlayerX = data.playerX === currentPlayerId;
                 const isPlayerO = data.playerO === currentPlayerId;
                 
+                // Determine if a slot is controlled by bot
+                const isBotX = botMode && data.playerX && data.playerX.toString().startsWith('bot_');
+                const isBotO = botMode && data.playerO && data.playerO.toString().startsWith('bot_');
+                
                 if (data.playerX) {
-                    playerXName.textContent = isPlayerX ? 'YOU (X)' : (botMode && !isPlayerX ? 'BOT (X)' : 'OPPONENT (X)');
-                    if (botMode && !isPlayerX && data.playerX !== currentPlayerId) {
+                    if (isBotX) {
+                        playerXName.textContent = '🤖 BOT X 🤖';
                         playerXStatus.textContent = 'BOT';
                         playerXStatus.className = 'player-status status-bot';
                     } else {
+                        playerXName.textContent = isPlayerX ? 'YOU (X)' : 'OPPONENT (X)';
                         playerXStatus.textContent = 'ONLINE';
                         playerXStatus.className = 'player-status status-ready';
                     }
@@ -1074,11 +1026,12 @@
                 }
                 
                 if (data.playerO) {
-                    playerOName.textContent = isPlayerO ? 'YOU (O)' : (botMode && !isPlayerO ? 'BOT (O)' : 'OPPONENT (O)');
-                    if (botMode && !isPlayerO && data.playerO !== currentPlayerId) {
+                    if (isBotO) {
+                        playerOName.textContent = '🤖 BOT O 🤖';
                         playerOStatus.textContent = 'BOT';
                         playerOStatus.className = 'player-status status-bot';
                     } else {
+                        playerOName.textContent = isPlayerO ? 'YOU (O)' : 'OPPONENT (O)';
                         playerOStatus.textContent = 'ONLINE';
                         playerOStatus.className = 'player-status status-ready';
                     }
@@ -1110,7 +1063,15 @@
                     } else {
                         const isWinner = (data.winner === 'X' && data.playerX === currentPlayerId) ||
                                        (data.winner === 'O' && data.playerO === currentPlayerId);
-                        gameStatus.innerHTML = isWinner ? '<i class="fas fa-trophy"></i> VICTORY!' : '<i class="fas fa-skull"></i> DEFEAT!';
+                        
+                        const isBotWinner = (data.winner === 'X' && data.playerX && data.playerX.toString().startsWith('bot_')) ||
+                                          (data.winner === 'O' && data.playerO && data.playerO.toString().startsWith('bot_'));
+                        
+                        if (isBotWinner) {
+                            gameStatus.innerHTML = '<i class="fas fa-robot"></i> BOT WINS! <i class="fas fa-robot"></i>';
+                        } else {
+                            gameStatus.innerHTML = isWinner ? '<i class="fas fa-trophy"></i> VICTORY!' : '<i class="fas fa-skull"></i> DEFEAT!';
+                        }
                         turnIndicator.style.display = 'none';
                         highlightWinningCells(data.board, data.winner);
                     }
@@ -1129,8 +1090,8 @@
                     
                     // Trigger bot move if bot mode is active and it's bot's turn
                     if (botMode && !data.winner) {
-                        const opponentSymbol = mySymbol === 'X' ? 'O' : 'X';
-                        if (data.turn === opponentSymbol) {
+                        const botSymbol = mySymbol === 'X' ? 'O' : 'X';
+                        if (data.turn === botSymbol) {
                             botMove();
                         }
                     }
@@ -1156,20 +1117,39 @@
                     return;
                 }
                 
-                const botId = botMode ? 'bot_' + Date.now() + '_' + Math.random().toString(36).substring(2) : null;
+                let gameData;
                 
-                const gameData = {
-                    roomCode: roomCode,
-                    playerX: playerId,
-                    playerO: botMode ? botId : null,
-                    board: ['', '', '', '', '', '', '', '', ''],
-                    turn: 'X',
-                    winner: null,
-                    status: botMode ? 'playing' : 'waiting',
-                    createdAt: Date.now(),
-                    lastMove: Date.now(),
-                    botMode: botMode || false
-                };
+                if (botMode) {
+                    // Create bot as the opponent (O player)
+                    const botId = 'bot_' + Date.now() + '_' + Math.random().toString(36).substring(2);
+                    gameData = {
+                        roomCode: roomCode,
+                        playerX: playerId,  // I am X
+                        playerO: botId,      // Bot is O (opponent)
+                        board: ['', '', '', '', '', '', '', '', ''],
+                        turn: 'X', // I start first
+                        winner: null,
+                        status: 'playing',
+                        createdAt: Date.now(),
+                        lastMove: Date.now(),
+                        botMode: true
+                    };
+                    showToast('🤖 BOT MODE: Bot will fight against you! 🤖', 3000);
+                } else {
+                    gameData = {
+                        roomCode: roomCode,
+                        playerX: playerId,
+                        playerO: null,
+                        board: ['', '', '', '', '', '', '', '', ''],
+                        turn: 'X',
+                        winner: null,
+                        status: 'waiting',
+                        createdAt: Date.now(),
+                        lastMove: Date.now(),
+                        botMode: false
+                    };
+                    showToast(`✅ Room created! Code: ${roomCode}`);
+                }
                 
                 await set(gameRef, gameData);
                 currentRoom = roomCode;
@@ -1177,11 +1157,6 @@
                 mySymbol = 'X';
                 setupGameListener(roomCode);
                 
-                if (botMode) {
-                    showToast('🤖 BOT MODE ACTIVATED! 🤖');
-                } else {
-                    showToast(`✅ Room created! Code: ${roomCode}`);
-                }
             } catch (error) {
                 console.error('Create game error:', error);
                 showToast('Error creating room');
@@ -1216,6 +1191,43 @@
                 const gameData = snapshot.val();
                 const playerId = getPlayerId();
                 
+                // Check if room has bot mode active
+                if (gameData.botMode) {
+                    // If joining a bot room, you become the opponent
+                    if (gameData.playerX && gameData.playerX.toString().startsWith('bot_')) {
+                        // Bot is X, you become O
+                        if (!gameData.playerO) {
+                            await update(ref(database, `games/${roomCode}`), {
+                                playerO: playerId,
+                                status: 'playing'
+                            });
+                            currentRoom = roomCode;
+                            currentPlayerId = playerId;
+                            mySymbol = 'O';
+                            setupGameListener(roomCode);
+                            showToast(`✅ Joined as O against BOT!`);
+                            showLoading(false);
+                            return;
+                        }
+                    } else if (gameData.playerO && gameData.playerO.toString().startsWith('bot_')) {
+                        // Bot is O, you become X
+                        if (!gameData.playerX) {
+                            await update(ref(database, `games/${roomCode}`), {
+                                playerX: playerId,
+                                status: 'playing'
+                            });
+                            currentRoom = roomCode;
+                            currentPlayerId = playerId;
+                            mySymbol = 'X';
+                            setupGameListener(roomCode);
+                            showToast(`✅ Joined as X against BOT!`);
+                            showLoading(false);
+                            return;
+                        }
+                    }
+                }
+                
+                // Normal join logic
                 if (gameData.playerX === playerId) {
                     currentRoom = roomCode;
                     currentPlayerId = playerId;
@@ -1303,7 +1315,7 @@
                 botMode = !botMode;
                 if (botMode) {
                     botIndicator.classList.add('show');
-                    showToast('🤖 BOT MODE ACTIVATED! Bots will destroy opponents! 🤖', 3000);
+                    showToast('🤖 BOT MODE ACTIVATED! Bot will fight your opponent! 🤖', 4000);
                 } else {
                     botIndicator.classList.remove('show');
                     showToast('Bot mode deactivated', 2000);
